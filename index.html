@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<script src='https://d3js.org/d3.v5.min.js'></script>
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        font-family: Helvetica, sans-serif;
+        color: #524940;
+    }
+
+
+    #header {
+        margin-right: auto;
+        margin-left: auto;
+        width: 1300px;
+    }
+
+    #months-container {
+        text-align: center;
+        width: 1220px;
+    }
+
+    .month {
+        width: 100px;
+        height: 100px;
+        background-color: #00B7ff;
+        color: white;
+        font-size: 24px;
+        display: inline-block;
+        text-align: center;
+        margin-right: 1px;
+        padding-top: 35px;
+        cursor: pointer;
+        box-shadow: 2px 2px rgba(0, 0, 0, 0.2);
+    }
+
+    .selected {
+        background: white;
+        color: gray;
+        border: 1px solid rgba(0, 0, 0, 0.2)
+    }
+
+    #title {
+        margin-top: 12px;
+        margin-bottom: 12px;
+        width: 1220px;
+    }
+
+    #dropdown {
+        margin-left: 4px;
+        margin-right: 4px;
+    }
+
+    text {
+        fill: #524940
+    }
+
+    .category-item-name {
+        fill: #0053c2;
+        cursor: pointer;
+        font-size: 12px;
+    }
+
+    #svg-container {
+        margin-right: auto;
+        margin-left: auto;
+        text-align: center;
+        width: 1300px;
+    }
+</style>
+
+<body onload='init()'>
+    <div>
+        <!-- Header section -->
+        <div id="header">
+            <div id="months-container">
+            </div>
+            <div id="title">Spending for <span><select id="dropdown">
+                        <option>All Categories</option>
+                    </select></span> for 2018 for Credit Card X1234</div>
+        </div>
+
+        <!-- Chart section -->
+        <div id="svg-container">
+            <svg width=600 height=1200>
+                <g class="piechart">
+                    <text id="spendingText"></text>
+                    <text id="spendingValue" y=25 id="spendingText"></text>
+                </g>
+                <g class="categories"> <text>Categories</text></g>
+            </svg>
+        </div>
+        <!-- Categories section -->
+        <div></div>
+    </div>
+
+
+    <script>
+        const categoryColors = {
+            'Travel': '#ea7600',
+            'Home and Utilities': '#6dc24b',
+            'Restaurants and Dining': '#ffcc00'
+        }
+        const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+        let chartState = {};
+        var SVGWidth = 600;
+        var SVGHeight = 1200;
+        var margin = { left: 50, right: 50, top: 50, bottom: 50 };
+        var pieChart = { innerRadius: 115, outerRadius: 150 }
+        var width = SVGWidth - margin.left - margin.right;
+        var height = SVGHeight - margin.top - margin.bottom;
+        let data;
+        async function init() {
+
+            data = await d3.csv('./CSV Sample Data Credit Card.csv', (d) => {
+                d['Amount'] = Number(d['Amount'].replace(/,/g, ''));
+                return d;
+            });
+            appendMonths()
+            let { total, categories } = getDataForSelectedCategoryAndYear(data)
+            bindCategoriesToDropDown(categories)
+            drawPieChart(total, categories)
+        }
+
+        function appendMonths(selectedMonth) {
+            d3.select('#months-container')
+                .selectAll('.month')
+                .data(MONTHS)
+                .enter()
+                .append('div')
+                .attr('class', function (d, index) {
+                    var className = 'month';
+                    if (selectedMonth === d)
+                        className += ' selected'
+                    return className;
+                }).html(function (d) { return d })
+                .on('click', function () {
+                    d3.selectAll('.selected').classed('selected', false)
+                    d3.select(this).classed('selected', 'true')
+                    chartState.month = d3.select(this).html();
+                    let { total, categories } = getDataForSelectedCategoryAndYear(data);
+                    drawPieChart(total, categories)
+                });
+        }
+
+        function bindCategoriesToDropDown(categories) {
+            let dropdown = d3.select('#dropdown');
+            dropdown.selectAll('.category')
+                .data(categories).enter()
+                .append('option')
+                .attr('class', 'category').html(function (d) {
+                    return d['name']
+                })
+            dropdown.on('change', function (d) {
+                chartState.category = dropdown.node().value;
+                let { total, categories } = getDataForSelectedCategoryAndYear(data);
+                drawPieChart(total, categories)
+            })
+        }
+
+        function getAllCategoriesData(data) {
+            let categories = [];
+            let total = 0;
+            let entries = d3.nest()
+                .key(function (d) { return d['Transaction Category']; })
+                .rollup(function (values) {
+                    return d3.sum(values, function (d) { return d['Amount'] });
+                }).entries(data);
+            entries.forEach(function (d) {
+                categories.push({
+                    name: d['key'],
+                    total: d['value']
+                })
+                total += d['value'];
+            })
+            return { total, categories };
+        }
+
+        function getDataForSelectedCategoryAndYear(data) {
+            //fillter data by month
+            let filteredata = [];
+            if (chartState.month) {
+                data.forEach(function (d) {
+                    let month = d['Date'].split('-')[1];
+                    if (chartState.month.toLowerCase() === month.toLowerCase())
+                        filteredata.push(d)
+                })
+            } else {
+                filteredata = data;
+            }
+            //filter by category
+            let finalFilteredData = [];
+            if (chartState.category && chartState.category !== 'All Categories') {
+                filteredata.forEach(function (d) {
+                    if (d['Transaction Category'].toLowerCase() === chartState.category.toLowerCase()) {
+                        finalFilteredData.push(d)
+                    }
+                })
+            } else {
+                finalFilteredData = filteredata;
+            }
+            return getAllCategoriesData(finalFilteredData)
+        }
+
+        function drawPieChart(total, categories) {
+            let svg = d3.select('svg');
+            let pChart = svg.select('.piechart')
+                .attr('transform', 'translate(' + SVGWidth / 2 + ',' + (margin.top + pieChart.outerRadius) + ')');
+
+            pChart.select('#spendingText')
+                .text('Total Spending')
+                .style('text-anchor', 'middle')
+            pChart.select('#spendingValue')
+                .text('$' + total.toFixed(2))
+                .style('text-anchor', 'middle');
+
+            var arc = d3.arc()
+                .innerRadius(pieChart.innerRadius)
+                .outerRadius(pieChart.outerRadius)
+                //.startAngle(0);
+
+            let pieData = d3.pie().value(function (d) { return d['total'] })(categories)
+            let pieChartUpdate = pChart.selectAll('path').data(pieData)
+
+            pieChartUpdate.enter()
+                .append('path').attr('d', function (d) { return arc(d) })
+                .style('fill', function (d) {
+                    return categoryColors[d.data.name]
+                })
+            pieChartUpdate.attr('d', function (d) { return arc(d) })
+                .style('fill', function (d) {
+                    return categoryColors[d.data.name]
+                })
+            pieChartUpdate.exit().remove();
+
+
+            //Category section
+            let category = svg.select('.categories')
+                .attr('transform', 'translate(' + margin.left + ',' + (margin.top + pieChart.outerRadius * 2 + margin.bottom) + ')')
+
+            let yOffset = 20;
+            let yPadding = 2;
+            let categoryHeight = 60;
+            let categoryUpdate = category.selectAll('g')
+                .data(categories)
+
+            category = categoryUpdate.enter()
+                .append('g')
+                .attr('transform', function (_, i) {
+                    let y = (yOffset + i * (categoryHeight + yPadding))
+                    return 'translate(0,' + y + ')';
+                })
+
+            category.append('rect')
+                .attr('width', width)
+                .attr('height', categoryHeight)
+                .style('fill', '#EFAC57')
+                .style('opacity', 0.2);
+
+            category.append('rect')
+                .attr('class', 'indicator')
+                .attr('width', 12).attr('height', categoryHeight)
+                .style('fill', function (d) { return categoryColors[d['name']] })
+
+            category.append('text')
+                .attr('x', 20)
+                .attr('y', 23)
+                .attr('class', 'category-item-name')
+                .text(function (d) { return d['name'] })
+
+            category.append('text')
+                .attr('x', width - 75)
+                .attr('y', 23)
+                .attr('class', 'total')
+                .style('text-anchor', 'end')
+                .text(function (d) { return '$' + d['total'].toFixed(2) })
+
+            category.append('text')
+                .attr('x', width - 65)
+                .attr('y', 23)
+                .style('font-size', 12)
+                .text('spent')
+
+            categoryUpdate.select('.indicator')
+                .style('fill', function (d) { return categoryColors[d['name']] });
+
+            categoryUpdate.select('.category-item-name')
+                .text(function (d) { return d['name'] })
+            categoryUpdate.select('.total')
+                .text(function (d) { return '$' + d['total'].toFixed(2) })
+
+            categoryUpdate.exit().remove()
+
+        }
+
+    </script>
+</body>
+
+</html>
