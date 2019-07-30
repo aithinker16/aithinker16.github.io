@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html>
+<script src='https://d3js.org/d3.v5.min.js'></script>
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        font-family: Helvetica, sans-serif;
+        color: #524940;
+    }
+
+
+    #header {
+        margin-right: auto;
+        margin-left: auto;
+        width: 1300px;
+    }
+
+    #months-container {
+        text-align: center;
+        width: 1220px;
+    }
+
+    .month {
+        width: 100px;
+        height: 100px;
+        background-color: #00B7ff;
+        color: white;
+        font-size: 24px;
+        display: inline-block;
+        text-align: center;
+        margin-right: 1px;
+        padding-top: 35px;
+        cursor: pointer;
+        box-shadow: 2px 2px rgba(0, 0, 0, 0.2);
+    }
+
+    .selected {
+        background: white;
+        color: gray;
+        border: 1px solid rgba(0, 0, 0, 0.2)
+    }
+
+    #title {
+        margin-top: 12px;
+        margin-bottom: 12px;
+        width: 1220px;
+    }
+
+    #dropdown {
+        margin-left: 4px;
+        margin-right: 4px;
+    }
+
+    text {
+        fill: #524940
+    }
+
+    .category-item-name {
+        fill: #0053c2;
+        cursor: pointer;
+        font-size: 12px;
+    }
+
+    #svg-container {
+        margin-right: auto;
+        margin-left: auto;
+        text-align: center;
+        width: 1300px;
+    }
+
+    #spendingInfo {
+        font-size: 10px;
+        text-anchor: middle;
+    }
+
+    .info {
+        font-size: 8px;
+    }
+
+    .grid {
+        opacity: 0.2;
+    }
+</style>
+
+<body onload='init()'>
+    <div>
+        <!-- Header section -->
+        <div id="header">
+            <div id="months-container">
+            </div>
+            <div id="title">Spending for <span><select id="dropdown">
+                        <option>All Categories</option>
+                    </select></span> for month of <span id="title-month">JAN</span> 2018 for Credit Card X1234</div>
+        </div>
+
+        <!-- Chart section -->
+        <div id="svg-container">
+            <svg width=600 height=1200>
+                <g class="piechart">
+                    <text id="spendingText"></text>
+                    <text id="spendingValue" y=25></text>
+                    <text id="spendingInfo" y=45>in January 2018</text>
+                </g>
+                <g class="hoverArc">
+                    <path id="hoverpath"></path>
+                </g>
+                <g class="categories"> <text>Categories</text></g>
+                <g class="barchartSection">
+                    <g id="section1">
+                        <text style="font-weight:bold">You Spent</text>
+                        <text id="value"></text>
+                        <line id="line1"></line>
+                        <text class="info" id="info1"></text>
+                        <text class="info" id="info2"></text>
+                        <line id="divider1"></line>
+                        <text id="monthlyAverageTitle" style="text-anchor: middle; font-size:12px">Your monthly
+                            average</text>
+                        <text id="monthlyAverageValue" style="text-anchor: middle; font-size:12px"></text>
+                        <line id="divider2"></line>
+                        <line id="line2"></line>
+                    </g>
+                    <g id="section2">
+                        <text style="font-size:12px">Your Spending History</text>
+                        <g id="barsGroup"></g>
+                    </g>
+                </g>
+            </svg>
+        </div>
+        <!-- Categories section -->
+        <div></div>
+    </div>
+
+
+    <script>
+        const categoryColors = {
+            'Travel': '#ea7600',
+            'Home and Utilities': '#6dc24b',
+            'Restaurants and Dining': '#ffcc00'
+        }
+        const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+        const FULL_MONTH = {
+            JAN: 'January',
+            FEB: 'February',
+            MAR: 'March',
+            APR: 'April',
+            MAY: 'May',
+            JUN: 'June',
+            JUL: 'July',
+            AUG: 'August',
+            SEP: 'September',
+            OCT: 'October',
+            NOV: 'November',
+            DEC: 'December'
+        }
+        let chartState = { month: 'JAN' };
+        var SVGWidth = 600;
+        var SVGHeight = 1200;
+        var margin = { left: 50, right: 50, top: 50, bottom: 50 };
+        var pieChart = { innerRadius: 115, outerRadius: 150 }
+        var hoverChart = { innerRadius: 160, outerRadius: 165 }
+        var width = SVGWidth - margin.left - margin.right;
+        var height = SVGHeight - margin.top - margin.bottom;
+        let data;
+        async function init() {
+
+            data = await d3.csv('./CSV Sample Data Credit Card.csv', (d) => {
+                d['Amount'] = Number(d['Amount'].replace(/,/g, ''));
+                return d;
+            });
+
+            appendMonths('JAN')
+            let { total, categories } = getDataForSelectedCategoryAndYear(data)
+            bindCategoriesToDropDown(categories)
+            drawPieChart(total, categories)
+        }
+
+        function appendMonths(selectedMonth) {
+            d3.select('#months-container')
+                .selectAll('.month')
+                .data(MONTHS)
+                .enter()
+                .append('div')
+                .attr('class', function (d, index) {
+                    var className = 'month';
+                    if (selectedMonth === d)
+                        className += ' selected'
+                    return className;
+                }).html(function (d) { return d })
+                .on('click', function () {
+                    d3.selectAll('.selected').classed('selected', false)
+                    d3.select(this).classed('selected', 'true')
+                    chartState.month = d3.select(this).html();
+                    d3.select('#title-month').text(chartState.month)
+                    let { total, categories } = getDataForSelectedCategoryAndYear(data);
+                    drawPieChart(total, categories)
+                });
+        }
+
+        function bindCategoriesToDropDown(categories) {
+            let dropdown = d3.select('#dropdown');
+            dropdown.selectAll('.category')
+                .data(categories).enter()
+                .append('option')
+                .attr('class', 'category').html(function (d) {
+                    return d['name']
+                })
+            dropdown.on('change', function (d) {
+                chartState.category = dropdown.node().value;
+                let { total, categories } = getDataForSelectedCategoryAndYear(data);
+                drawPieChart(total, categories)
+            })
+        }
+
+        function getAllCategoriesData(data) {
+            let categories = [];
+            let total = 0;
+            let entries = d3.nest()
+                .key(function (d) { return d['Transaction Category']; })
+                .rollup(function (values) {
+                    return d3.sum(values, function (d) { return d['Amount'] });
+                }).entries(data);
+            entries.forEach(function (d) {
+                categories.push({
+                    name: d['key'],
+                    total: d['value']
+                })
+                total += d['value'];
+            })
+            return { total, categories };
+        }
+
+        function getDataForSelectedCategoryAndYear(data) {
+            //fillter data by month
+            let filteredata = [];
+            if (chartState.month) {
+                data.forEach(function (d) {
+                    let month = d['Date'].split('-')[1];
+                    if (chartState.month.toLowerCase() === month.toLowerCase())
+                        filteredata.push(d)
+                })
+            } else {
+                filteredata = data;
+            }
+            //filter by category
+            let finalFilteredData = [];
+            if (chartState.category && chartState.category !== 'All Categories') {
+                filteredata.forEach(function (d) {
+                    if (d['Transaction Category'].toLowerCase() === chartState.category.toLowerCase()) {
+                        finalFilteredData.push(d)
+                    }
+                })
+            } else {
+                finalFilteredData = filteredata;
+            }
+            return getAllCategoriesData(finalFilteredData)
+        }
+
+        function drawPieChart(total, categories) {
+            let svg = d3.select('svg');
+            let pChart = svg.select('.piechart')
+                .attr('transform', 'translate(' + SVGWidth / 2 + ',' + (margin.top + pieChart.outerRadius) + ')');
+            let hChart = svg.select('.hoverArc')
+                .attr('transform', 'translate(' + SVGWidth / 2 + ',' + (margin.top + pieChart.outerRadius) + ')');
+
+            if (categories.length === 1) {
+                pChart.select('#spendingText')
+                    .text(categories[0].name)
+                    .style('text-anchor', 'middle')
+            } else {
+                pChart.select('#spendingText')
+                    .text('Total Spending')
+                    .style('text-anchor', 'middle')
+            }
+
+            pChart.select('#spendingValue')
+                .text('$' + total.toFixed(2))
+                .style('text-anchor', 'middle');
+            pChart.select('#spendingInfo')
+                .text('in ' + FULL_MONTH[chartState.month] + ' 2018')
+
+            var arc = d3.arc()
+                .innerRadius(pieChart.innerRadius)
+                .outerRadius(pieChart.outerRadius)
+            var hoverArc = d3.arc()
+                .innerRadius(hoverChart.innerRadius)
+                .outerRadius(hoverChart.outerRadius)
+
+            let pieData = d3.pie().value(function (d) { return d['total'] })(categories)
+            let pieChartUpdate = pChart.selectAll('path').data(pieData)
+
+            pieChartUpdate.enter()
+                .append('path').attr('d', function (d) { return arc(d) })
+                .style('fill', function (d) {
+                    return categoryColors[d.data.name]
+                }).on('mouseover', function (d) {
+                    if (!chartState.category || chartState.category === 'All Categories') {
+                        hChart.select('#hoverpath').attr('d', function () { return hoverArc(d) })
+                            .style('fill', function () {
+                                return categoryColors[d.data.name]
+                            }).style('opacity', 1)
+                        pChart.select('#spendingText').text(d.data.name)
+                        pChart.select('#spendingValue')
+                            .text('$' + d.data.total.toFixed(2))
+                        pChart.select('#spendingInfo')
+                            .text('in ' + FULL_MONTH[chartState.month] + ' 2018')
+                    }
+                }).on('mouseout', function () {
+                    if (!chartState.category || chartState.category === 'All Categories') {
+                        hChart.select('#hoverpath').style('opacity', 0);
+                        pChart.select('#spendingText').text('Total Spending')
+                        pChart.select('#spendingValue')
+                            .text('$' + total.toFixed(2))
+                    }
+                })
+            pieChartUpdate.attr('d', function (d) { return arc(d) })
+                .style('fill', function (d) {
+                    return categoryColors[d.data.name]
+                })
+            pieChartUpdate.exit().remove();
+
+
+            let category = svg.select('.categories');
+            let barSection = svg.select('.barchartSection')
+            if (categories.length > 1) {
+                //Category section
+                barSection.style('opacity', 0)
+                category.attr('transform', 'translate(' + margin.left + ',' + (margin.top + pieChart.outerRadius * 2 + margin.bottom) + ')')
+                    .style('opacity', 1)
+
+                let yOffset = 20;
+                let yPadding = 2;
+                let categoryHeight = 60;
+                let categoryUpdate = category.selectAll('g')
+                    .data(categories)
+
+                category = categoryUpdate.enter()
+                    .append('g')
+                    .attr('transform', function (_, i) {
+                        let y = (yOffset + i * (categoryHeight + yPadding))
+                        return 'translate(0,' + y + ')';
+                    })
+
+                category.append('rect')
+                    .attr('width', width)
+                    .attr('height', categoryHeight)
+                    .style('fill', '#EFAC57')
+                    .style('opacity', 0.2);
+
+                category.append('rect')
+                    .attr('class', 'indicator')
+                    .attr('width', 12).attr('height', categoryHeight)
+                    .style('fill', function (d) { return categoryColors[d['name']] })
+
+                category.append('text')
+                    .attr('x', 20)
+                    .attr('y', 23)
+                    .attr('class', 'category-item-name')
+                    .text(function (d) { return d['name'] })
+                    .on('click', function (d) {
+                        d3.select('#dropdown').property('value', d['name'])
+                        chartState.category = d['name'];
+                        let { total, categories } = getDataForSelectedCategoryAndYear(data);
+                        drawPieChart(total, categories)
+                    })
+
+                category.append('text')
+                    .attr('x', width - 75)
+                    .attr('y', 23)
+                    .attr('class', 'total')
+                    .style('text-anchor', 'end')
+                    .text(function (d) { return '$' + d['total'].toFixed(2) })
+
+                category.append('text')
+                    .attr('x', width - 65)
+                    .attr('y', 23)
+                    .style('font-size', 12)
+                    .text('spent')
+
+                categoryUpdate.select('.indicator')
+                    .style('fill', function (d) { return categoryColors[d['name']] });
+
+                categoryUpdate.select('.category-item-name')
+                    .text(function (d) { return d['name'] })
+                    .on('click', function (d) {
+                        d3.select('#dropdown').property('value', d['name'])
+                        chartState.category = d['name'];
+                        let { total, categories } = getDataForSelectedCategoryAndYear(data);
+                        drawPieChart(total, categories)
+                    })
+                categoryUpdate.select('.total')
+                    .text(function (d) { return '$' + d['total'].toFixed(2) })
+
+                categoryUpdate.exit().remove();
+            }
+            else {
+                const CATEGORY_INFO_LINE1 = {
+                    'Travel': 'Includes flights, hotels, and car rentals.',
+                    'Home and Utilities': 'Includes rent, mortgage, utilities, phone, cable',
+                    'Restaurants and Dining': 'Includes restaurants coffee shops, and fast foods'
+                }
+                const CATEGORY_INFO_LINE2 = {
+                    'Travel': '',
+                    'Home and Utilities': 'maintenance, and home improvement',
+                    'Restaurants and Dining': ''
+                }
+                //draw the bar chart Section
+                category.style('opacity', 0)
+                barSection.attr('transform', 'translate(' + margin.left + ',' + (margin.top + pieChart.outerRadius * 2.4 + margin.bottom) + ')')
+                    .style('opacity', 1);
+                let section1 = barSection.select('#section1');
+                section1.select('#line1')
+                    .attr('x1', 0)
+                    .attr('x2', width)
+                    .attr('y1', 12)
+                    .attr('y2', 12)
+                    .style('stroke-width', 1)
+                    .style('stroke', '#524940');
+
+                section1.select('#value')
+                    .text('$' + total.toFixed(2))
+                    .attr('x', width)
+                    .style('text-anchor', 'end')
+
+                section1.select('#info1')
+                    .attr('y', 30)
+                    .text(CATEGORY_INFO_LINE1[categories[0].name])
+                section1.select('#info2')
+                    .attr('y', 45)
+                    .text(CATEGORY_INFO_LINE2[categories[0].name])
+
+                section1.select('#divider1')
+                    .attr('x1', width / 2 - 65)
+                    .attr('x2', width / 2 - 65)
+                    .attr('y1', 18)
+                    .attr('y2', 55)
+                    .style('stroke-width', 0.5)
+                    .style('stroke', '#524940');
+                section1.select('#monthlyAverageTitle').attr('x', width / 2)
+                    .attr('y', 30)
+
+                let { average, filteredData } = getDataForClickedCategory(categories[0].name, data)
+
+                section1.select('#monthlyAverageValue').attr('x', width / 2)
+                    .attr('y', 52).text('$' + average.toFixed(2))
+                section1.select('#divider2')
+                    .attr('x1', width / 2 + 65)
+                    .attr('x2', width / 2 + 65)
+                    .attr('y1', 18)
+                    .attr('y2', 55)
+                    .style('stroke-width', 0.5)
+                    .style('stroke', '#524940');
+
+                section1.select('#line2')
+                    .attr('x1', 0)
+                    .attr('x2', width)
+                    .attr('y1', 65)
+                    .attr('y2', 65)
+                    .style('stroke-width', 1)
+                    .style('stroke', '#524940');
+                let section2 = barSection.select('#section2')
+                    .attr('transform', 'translate(0, 100)');
+                drawBarCategoryBarChart(filteredData, average, categories[0].name, section2)
+            }
+
+        }
+
+        function drawBarCategoryBarChart(data, average, category, selection) {
+            selection = selection.select('#barsGroup')
+            selection.attr('transform', 'translate(0, 20)')
+            //clear selection
+            selection.selectAll('g').remove();
+            let barsHeight = 200;
+            var xDomain = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            const yScale = d3.scaleLinear()
+                .range([barsHeight, 0])
+                .domain([0, d3.max(data, function (d) {
+                    return d['Amount']
+                })]);
+            const xScale = d3.scaleBand()
+                .range([0, width])
+                .domain(xDomain)
+                .padding(0.2)
+
+            selection.append('g')
+                .attr('class', 'grid')
+                .call(d3.axisLeft()
+                    .scale(yScale)
+                    .tickSize(-width, 0, 0)
+                    .tickFormat(''))
+
+            //draw the rect for average monthly
+            selection.select('#averageRect').remove();
+            selection.append('rect')
+                .attr('id', 'averageRect')
+                .attr('x', 0)
+                .attr('y', function (d) {
+                    return yScale(average)
+                })
+                .attr('height', function (d) {
+                    return barsHeight - yScale(average)
+                })
+                .attr('width', width)
+                .style('fill', categoryColors[category])
+                .style('opacity', 0.3)
+
+            let bars = selection.selectAll('.rectangle')
+                .data(data);
+            bars.enter()
+                .append('rect')
+                .attr('class', 'rectangle')
+                .attr('x', function (_, i) {
+                    return xScale(xDomain[i])
+                })
+                .attr('y', function (d) {
+                    return yScale(d['Amount'])
+                })
+                .attr('height', function (d) {
+                    return barsHeight - yScale(d['Amount'])
+                })
+                .attr('width', xScale.bandwidth())
+                .style('fill', categoryColors[category])
+
+            //bars update
+            bars.attr('height', function (d) {
+                return barsHeight - yScale(d['Amount'])
+            }).style('fill', categoryColors[category])
+                .attr('x', function (_, i) {
+                    return xScale(xDomain[i])
+                })
+                .attr('y', function (d) {
+                    return yScale(d['Amount'])
+                })
+
+            bars.exit().remove();
+
+            selection.append('g')
+                .call(d3.axisLeft(yScale).tickFormat(function (d) {
+                    return '$' + d;
+                }));
+            selection.append('g')
+                .attr('transform', `translate(0, ${barsHeight})`)
+                .call(d3.axisBottom(xScale));
+
+            //draw the anchor on the right
+            d3.select('#anchor').remove();
+            let anchor = selection.append('g')
+                .attr('id', 'anchor')
+                .attr('transform', 'translate(' + width + ',' + yScale(average) + ')');
+            anchor.append('polyline').attr('points', '0,0  3,-3 3,6  ')
+                .style('stroke', '#524940').style('stroke-width', 1)
+            anchor.append('line')
+                .attr('x1', 3)
+                .attr('x2', 3)
+                .attr('y1', -30)
+                .attr('y2', 30)
+                .attr('stroke', '#524940');
+            anchor.append('text')
+                .attr('x', 12)
+                .attr('y', -16)
+                .attr('class', 'info')
+                .text('Your')
+            anchor.append('text')
+                .attr('x', 12)
+                .attr('y', -6)
+                .attr('class', 'info')
+                .text('Monthly')
+            anchor.append('text')
+                .attr('x', 12)
+                .attr('y', 4)
+                .attr('class', 'info')
+                .text('Average')
+
+            anchor.append('text')
+                .attr('x', 12)
+                .attr('y', 24)
+                .text("$"+ Math.round(average))
+        }
+
+        function getDataForClickedCategory(category, data) {
+            let filteredData = [];
+            let average = 0;
+            data.forEach(function (d) {
+                if (d['Transaction Category'] === category)
+                    filteredData.push(d)
+            })
+            average = d3.sum(filteredData, function (d) {
+                return d['Amount']
+            }) / 12;
+
+            return {
+                average, filteredData
+            }
+        }
+
+    </script>
+</body>
+
+</html>
